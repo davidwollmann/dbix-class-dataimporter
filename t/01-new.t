@@ -4,9 +4,6 @@ use DBIx::Class::Schema;
 use DBIx::Class::DataImporter;
 use Test::More tests => 3;
 
-my $sch1 = bless {}, 'DBIx::Class::Schema';
-my $sch2 = bless {}, 'DBIx::Class::Schema';
-
 eval {
     DBIx::Class::DataImporter->new();
 };
@@ -22,7 +19,16 @@ eval {
 ok($@, 'constructor raises exception with invalid parameters');
 
 ok(my $importer = DBIx::Class::DataImporter->new({
-    src_schema => $sch1,
-    dest_schema => $sch2,
-    import_maps => [{}],
+    src_schema => bless({}, 'DBIx::Class::Schema'),
+    dest_schema => bless({}, 'DBIx::Class::Schema'),
+    import_maps => [
+        {
+            from_source => 'foo',
+            to_source => 'bar',
+            map => [
+                'field1' => 'field1',
+                'field2' => sub { 'does nothing' },
+            ]
+        },
+    ],
 }), 'object created with valid parameters');

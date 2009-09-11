@@ -3,25 +3,19 @@ package # hide from PAUSE
 
 use strict;
 use warnings;
-use DBICTest::AuthorCheck;
-use DBICTest::Schema;
 
 =head1 NAME
 
-DBICTest - Library to be used by DBIx::Class test scripts.
+DBICTest - Library to be used by DBIx::Class::DataImporter test script schemas.
 
 =head1 SYNOPSIS
 
-  use lib qw(t/lib);
   use DBICTest;
-  use Test::More;
-  
-  my $schema = DBICTest->init_schema();
 
 =head1 DESCRIPTION
 
 This module provides the basic utilities to write tests against 
-DBIx::Class.
+DBIx::Class::DataImporter.
 
 =head1 METHODS
 
@@ -32,7 +26,7 @@ DBIx::Class.
     no_populate=>1,
     storage_type=>'::DBI::Replicated',
     storage_type_args=>{
-    	balancer_type=>'DBIx::Class::Storage::DBI::Replicated::Balancer::Random'
+        balancer_type=>'DBIx::Class::Storage::DBI::Replicated::Balancer::Random'
     },
   );
 
@@ -48,18 +42,19 @@ default, unless the no_deploy or no_populate flags are set.
 =cut
 
 sub has_custom_dsn {
-	return $ENV{"DBICTEST_DSN"} ? 1:0;
+    return $ENV{"DBICTEST_DSN"} ? 1:0;
 }
 
 sub _sqlite_dbfilename {
-    return "t/var/DBIxClass.db";
+    my $pkg = ref $_[0] || $_[0];
+    return "t/var/${pkg}.db";
 }
 
 sub _sqlite_dbname {
     my $self = shift;
     my %args = @_;
     return $self->_sqlite_dbfilename if $args{sqlite_use_file} or $ENV{"DBICTEST_SQLITE_USE_FILE"};
-	return ":memory:";
+    return ":memory:";
 }
 
 sub _database {
@@ -83,28 +78,28 @@ sub _database {
 sub init_schema {
     my $self = shift;
     my %args = @_;
-
+    my $pkg = ref $self || $self;
     my $schema;
-    
+
     if ($args{compose_connection}) {
-      $schema = DBICTest::Schema->compose_connection(
-                  'DBICTest', $self->_database(%args)
-                );
+        $schema = "${pkg}::Schema"->compose_connection(
+            $pkg, $self->_database(%args)
+        );
     } else {
-      $schema = DBICTest::Schema->compose_namespace('DBICTest');
+        $schema = "${pkg}::Schema"->compose_namespace($pkg);
     }
     if( $args{storage_type}) {
-    	$schema->storage_type($args{storage_type});
+        $schema->storage_type($args{storage_type});
     }    
     if ( !$args{no_connect} ) {
-      $schema = $schema->connect($self->_database(%args));
-      $schema->storage->on_connect_do(['PRAGMA synchronous = OFF'])
-       unless $self->has_custom_dsn;
+        $schema = $schema->connect($self->_database(%args));
+        $schema->storage->on_connect_do(['PRAGMA synchronous = OFF'])
+        unless $self->has_custom_dsn;
     }
     if ( !$args{no_deploy} ) {
-        __PACKAGE__->deploy_schema( $schema, $args{deploy_args} );
-        __PACKAGE__->populate_schema( $schema )
-         if( !$args{no_populate} );
+        $self->deploy_schema( $schema, $args{deploy_args} );
+        $self->populate_schema( $schema )
+        if( !$args{no_populate} );
     }
     return $schema;
 }
@@ -125,18 +120,20 @@ sub deploy_schema {
     my $self = shift;
     my $schema = shift;
     my $args = shift || {};
+    my $pkg = ref $self || $self;
 
     if ($ENV{"DBICTEST_SQLT_DEPLOY"}) { 
         $schema->deploy($args);    
     } else {
-        open IN, "t/lib/sqlite.sql";
+        my $file = "t/lib/${pkg}.sql";
+        open IN, '<', $file or die "IO error opening $file for reading: $!";
         my $sql;
         { local $/ = undef; $sql = <IN>; }
         close IN;
         for my $chunk ( split (/;\s*\n+/, $sql) ) {
-          if ( $chunk =~ / ^ (?! --\s* ) \S /xm ) {  # there is some real sql in the chunk - a non-space at the start of the string which is not a comment
-            $schema->storage->dbh_do(sub { $_[1]->do($chunk) }) or print "Error on SQL: $chunk\n";
-          }
+            if ( $chunk =~ / ^ (?! --\s* ) \S /xm ) {  # there is some real sql in the chunk - a non-space at the start of the string which is not a comment
+                $schema->storage->dbh_do(sub { $_[1]->do($chunk) }) or print "Error on SQL: $chunk\n";
+            }
         }
     }
     return;
@@ -160,7 +157,7 @@ sub populate_schema {
         [ 1, 'Caterwauler McCrae' ],
         [ 2, 'Random Boy Band' ],
         [ 3, 'We Are Goth' ],
-    ]);
+        ]);
 
     $schema->populate('CD', [
         [ qw/cdid artist title year/ ],
@@ -169,14 +166,14 @@ sub populate_schema {
         [ 3, 1, "Caterwaulin' Blues", 1997 ],
         [ 4, 2, "Generic Manufactured Singles", 2001 ],
         [ 5, 3, "Come Be Depressed With Us", 1998 ],
-    ]);
+        ]);
 
     $schema->populate('LinerNotes', [
         [ qw/liner_id notes/ ],
         [ 2, "Buy Whiskey!" ],
         [ 4, "Buy Merch!" ],
         [ 5, "Kill Yourself!" ],
-    ]);
+        ]);
 
     $schema->populate('Tag', [
         [ qw/tagid cd tag/ ],
@@ -189,58 +186,58 @@ sub populate_schema {
         [ 7, 5, "Cheesy" ],
         [ 8, 2, "Shiny" ],
         [ 9, 4, "Shiny" ],
-    ]);
+        ]);
 
     $schema->populate('TwoKeys', [
         [ qw/artist cd/ ],
         [ 1, 1 ],
         [ 1, 2 ],
         [ 2, 2 ],
-    ]);
+        ]);
 
     $schema->populate('FourKeys', [
         [ qw/foo bar hello goodbye sensors/ ],
         [ 1, 2, 3, 4, 'online' ],
         [ 5, 4, 3, 6, 'offline' ],
-    ]);
+        ]);
 
     $schema->populate('OneKey', [
         [ qw/id artist cd/ ],
         [ 1, 1, 1 ],
         [ 2, 1, 2 ],
         [ 3, 2, 2 ],
-    ]);
+        ]);
 
     $schema->populate('SelfRef', [
         [ qw/id name/ ],
         [ 1, 'First' ],
         [ 2, 'Second' ],
-    ]);
+        ]);
 
     $schema->populate('SelfRefAlias', [
         [ qw/self_ref alias/ ],
         [ 1, 2 ]
-    ]);
+        ]);
 
     $schema->populate('ArtistUndirectedMap', [
         [ qw/id1 id2/ ],
         [ 1, 2 ]
-    ]);
+        ]);
 
     $schema->populate('Producer', [
         [ qw/producerid name/ ],
         [ 1, 'Matt S Trout' ],
         [ 2, 'Bob The Builder' ],
         [ 3, 'Fred The Phenotype' ],
-    ]);
+        ]);
 
     $schema->populate('CD_to_Producer', [
         [ qw/cd producer/ ],
         [ 1, 1 ],
         [ 1, 2 ],
         [ 1, 3 ],
-    ]);
-    
+        ]);
+
     $schema->populate('TreeLike', [
         [ qw/id parent name/ ],
         [ 1, undef, 'root' ],        
@@ -250,7 +247,7 @@ sub populate_schema {
         [ 4, 3, 'baz'  ],
         [ 5, 4, 'quux' ],
         [ 7, 3, 'fong'  ],
-    ]);
+        ]);
 
     $schema->populate('Track', [
         [ qw/trackid cd  position title/ ],
@@ -269,29 +266,29 @@ sub populate_schema {
         [ 16, 1, 1, "The Bees Knees"],
         [ 17, 1, 2, "Apiary"],
         [ 18, 1, 3, "Beehind You"],
-    ]);
+        ]);
 
     $schema->populate('Event', [
         [ qw/id starts_at created_on varchar_date varchar_datetime skip_inflation/ ],
         [ 1, '2006-04-25 22:24:33', '2006-06-22 21:00:05', '2006-07-23', '2006-05-22 19:05:07', '2006-04-21 18:04:06'],
-    ]);
+        ]);
 
     $schema->populate('Link', [
         [ qw/id url title/ ],
         [ 1, '', 'aaa' ]
-    ]);
+        ]);
 
     $schema->populate('Bookmark', [
         [ qw/id link/ ],
         [ 1, 1 ]
-    ]);
+        ]);
 
     $schema->populate('Collection', [
         [ qw/collectionid name/ ],
         [ 1, "Tools" ],
         [ 2, "Body Parts" ],
-    ]);
-    
+        ]);
+
     $schema->populate('TypedObject', [
         [ qw/objectid type value/ ],
         [ 1, "pointy", "Awl" ],
@@ -299,7 +296,7 @@ sub populate_schema {
         [ 3, "pointy", "Knife" ],
         [ 4, "pointy", "Tooth" ],
         [ 5, "round", "Head" ],
-    ]);
+        ]);
     $schema->populate('CollectionObject', [
         [ qw/collection object/ ],
         [ 1, 1 ],
@@ -307,20 +304,21 @@ sub populate_schema {
         [ 1, 3 ],
         [ 2, 4 ],
         [ 2, 5 ],
-    ]);
+        ]);
 
     $schema->populate('Owners', [
         [ qw/id name/ ],
         [ 1, "Newton" ],
         [ 2, "Waltham" ],
-    ]);
+        ]);
 
     $schema->populate('BooksInLibrary', [
         [ qw/id owner title source price/ ],
         [ 1, 1, "Programming Perl", "Library", 23 ],
         [ 2, 1, "Dynamical Systems", "Library",  37 ],
         [ 3, 2, "Best Recipe Cookbook", "Library", 65 ],
-    ]);
+        ]);
 }
 
 1;
+
