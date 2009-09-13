@@ -34,21 +34,23 @@ SYNOPSIS
         import_maps => [
             {
                 from_source => 'cust',
-                from_source_rs_method => { search => { id => { '>' => 100 } } },
+                from_source_rs_method => [ search => { id => { '>' => 100 } } ],
                 to_source => 'Customer',
                 map => [
                     name => 'name',
                     address1 => 'street1',
                     city => 'city',
-                    state => \&lookup_state_id,
-                    zip => \&find_or_new_zip_id,
-                    email => \&find_or_new_email_id,
+                    state => [ \&lookup_state_id, 'state' ],
+                    zip => [ \&find_or_new_zip_id, 'zipcode' ],
+                    email => [ \&find_or_new_email_id, 'emailaddr' ],
                 ]
             },
         ]
      );
 
      $imp->run_import();
+     # or to limit the import to a subset of the defined import maps:
+     $imp->run_import(qw/ cust /);
 
 DESCRIPTION
     Import data from schema 'src_schema' to schema 'dest_schema' using the
@@ -99,7 +101,8 @@ METHODS
         Check consistency of maps. Look for real or potential data loss.
 
     run_import
-        Run the import.
+        Run the import. Pass a list of from_source names to limit the import
+        to a subset of the defined import maps.
 
 AUTHOR
     David P.C. Wollmann <converter42 at gmail dot com>
