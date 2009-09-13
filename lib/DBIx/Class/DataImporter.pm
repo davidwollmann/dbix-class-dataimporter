@@ -1,8 +1,11 @@
 package DBIx::Class::DataImporter;
 use Moose;
+use DBIx::Class::Exception;
 use DBIx::Class::DataImporter::Types qw(
     ImportMapList
 );
+
+our $VERSION = '0.01';
 
 =head1 NAME
 
@@ -42,21 +45,23 @@ DBIx::Class::DataImporter
     import_maps => [
         {
             from_source => 'cust',
-            from_source_rs_method => { search => { id => { '>' => 100 } } },
+            from_source_rs_method => [ search => { id => { '>' => 100 } } ],
             to_source => 'Customer',
             map => [
                 name => 'name',
                 address1 => 'street1',
                 city => 'city',
-                state => \&lookup_state_id,
-                zip => \&find_or_new_zip_id,
-                email => \&find_or_new_email_id,
+                state => [ \&lookup_state_id, 'state' ],
+                zip => [ \&find_or_new_zip_id, 'zipcode' ],
+                email => [ \&find_or_new_email_id, 'emailaddr' ],
             ]
         },
     ]
  );
 
  $imp->run_import();
+ # or to limit the import to a subset of the defined import maps:
+ $imp->run_import(qw/ cust /);
 
 =head1 DESCRIPTION
 
@@ -137,6 +142,29 @@ has 'import_maps' => (
 no Moose;
 __PACKAGE__->meta->make_immutable();
 
+sub BUILD {
+    my ($self, $params) = @_;
+    for my $import_map (@{$self->import_maps}) {
+        next unless 1 & @{$import_map->{map}};
+        DBIx::Class::Exception->throw(
+            "error in map list, from_source => $import_map->{from_source}, "
+            . "to_source => $import_map->{to_source}, "
+            . '"map" attribute must be an even numbered list of pairs of '
+            . 'source column name and destination column name or '
+            . 'method call'
+        );
+    }
+    for my $import_map (@{$self->import_maps}) {
+        my ($n, @tuples, @map);
+        @map = @{$import_map->{map}};
+        $n = @map;
+        for (my $i = 0; $i < $n; $i += 2) {
+            push @tuples, [ @map[$i, $i + 1] ];
+        }
+        $import_map->{_map_tuples} = [ @tuples ];
+    }
+}
+
 =head1 METHODS
 
 =over
@@ -154,16 +182,82 @@ sub lint {
 
 =item run_import
 
-Run the import.
+Run the import. Pass a list of from_source names to limit the import to a
+subset of the defined import maps.
 
 =cut
 
+# TODO new() modifier to validate map list
+# TODO do INSERTs
+
 sub run_import {
+    my ($self, @wanted) = @_;
+
+    # for each pair of tables (source & destination)
+    for my $import_map (@{$self->import_maps}) {
+        my $src = $import_map->{from_source};
+        my $dst = $import_map->{to_source};
+        my $ncols = @{$import_map->{_map_tuples}};
+        my @srccol = map {$_->[0]} @{$import_map->{_map_tuples}};
+        my $from_rs = $self->src_schema->resultset($src)
+                           ->search(undef, { columns => [ @srccol ] });
+        $from_rs = $self->_apply_from_source_rs_method($import_map, $from_rs);
+        my $to_rs = $self->dest_schema->resultset($dst);
+        $self->_import_rows($from_rs, $to_rs, $import_map);
+    }
+}
+
+sub _import_rows {
+    my ($self, $from_rs, $to_rs, $import_map) = @_;
+
+    while (my $row = $from_rs->next) {
+        my %insert;
+        for my $t (@{$import_map->{_map_tuples}}) {
+            my $src_col = $t->[0];
+            if (ref $t->[1] eq 'ARRAY') {
+                $insert{$t->[1][1]} = $t->[1][0]->($row->$src_col);
+            }
+            else {
+                $insert{$t->[1]} = $row->$src_col;
+            }
+        }
+        $to_rs->create({%insert});
+    }
 }
 
 =back
 
 =cut
+
+sub _apply_from_source_rs_method {
+    my ($self, $import_map, $from_rs) = @_;
+
+    my ($meth, $args) = @{$import_map->{from_source_rs_method} || []};
+    return $from_rs unless $meth;
+
+    unless ($args) {
+        DBIx::Class::Exception->throw(
+            "error in from_source_rs_method, from_source => $import_map->{from_source}, "
+            . "to_source => $import_map->{to_source}, no arguments were supplied for "
+            . "the $meth method."
+        );
+    }
+
+    return $from_rs->$meth($args);
+}
+
+sub _build_map_tuples {
+    my ($self) = shift;
+
+    my $ncols = @{$self->import_maps};
+    for my $import_map (@{$self->import_maps}) {
+        my @pair;
+        for (my $i = 0; $i < $ncols; $i += 2) {
+            push @pair, [ @{$import_map->{map}}[$i, $i+1] ];
+        }
+        $import_map->{_map_tuples} = [ @pair ];
+    }
+}
 
 1;
 

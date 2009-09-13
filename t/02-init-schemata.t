@@ -1,5 +1,7 @@
 #!perl
 
+# ok, this is really a meta-test, but it's cheap insurance
+
 use DBIx::Class::DataImporter;
 use Test::More tests => 2;
 use lib qw(t/lib);
